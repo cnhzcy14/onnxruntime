@@ -102,8 +102,13 @@ Status Conv::Compute(OpKernelContext* context) const {
     reshape_fn = xnn_reshape_convolution2d_nhwc_qu8;
   } else if (conv_type_ == OpComputeType::op_compute_type_qs8_per_channel) {
     reshape_fn = xnn_reshape_convolution2d_nhwc_qs8_qc8w;
+  } else if (conv_type_ == OpComputeType::op_compute_type_fp16) {
+    reshape_fn = xnn_reshape_convolution2d_nhwc_f16;
   }
-
+  
+  if (!op0_.get()) {
+    throw std::invalid_argument("op0 ------");
+  }
   auto status = reshape_fn(op0_.get(), N, H, W,
                            &workspace_size, &workspace_alignment,
                            /*output_height_out=*/nullptr, /*output_width_out=*/nullptr,
@@ -112,7 +117,7 @@ Status Conv::Compute(OpKernelContext* context) const {
     return ORT_MAKE_STATUS(ONNXRUNTIME, FAIL, "xnn_reshape_convolution2d_nhwc_", OpTypeToString(conv_type_),
                            "returned ", status);
   }
-
+  throw std::invalid_argument("step2");
   workspace.reset(allocator->aligned_allocate(allocator->context, XNN_ALLOCATION_ALIGNMENT, workspace_size));
 
   if (conv_type_ == OpComputeType::op_compute_type_fp32) {
@@ -127,6 +132,9 @@ Status Conv::Compute(OpKernelContext* context) const {
   } else if (conv_type_ == OpComputeType::op_compute_type_qs8_per_channel) {
     status = xnn_setup_convolution2d_nhwc_qs8_qc8w(op0_.get(), workspace.get(), X.Data<int8_t>(),
                                                    Y->MutableData<int8_t>());
+  } else if (conv_type_ == OpComputeType::op_compute_type_fp16) {
+    status = xnn_setup_convolution2d_nhwc_f16(op0_.get(), workspace.get(), X.Data<MLFloat16>(),
+                                                   Y->MutableData<MLFloat16>());
   }
 
   if (status != xnn_status_success) {
@@ -149,6 +157,15 @@ ONNX_OPERATOR_VERSIONED_KERNEL_EX(Conv, kMSInternalNHWCDomain, 1, 10, kXnnpackEx
 ONNX_OPERATOR_KERNEL_EX(Conv, kMSInternalNHWCDomain, 11, kXnnpackExecutionProvider,
                         KernelDefBuilder().TypeConstraint("T", DataTypeImpl::GetTensorType<float>()),
                         Conv);
+#ifdef XNNPACK_FP16_SUPPORTED
+  ONNX_OPERATOR_VERSIONED_TYPED_KERNEL_EX(Conv, kMSInternalNHWCDomain, 1, 10, MLFloat16, kXnnpackExecutionProvider, 
+                                    KernelDefBuilder().TypeConstraint("T", DataTypeImpl::GetTensorType<MLFloat16>()),
+                                    Conv);
+
+  ONNX_OPERATOR_TYPED_KERNEL_EX(Conv, kMSInternalNHWCDomain, 11, MLFloat16, kXnnpackExecutionProvider,
+                          KernelDefBuilder().TypeConstraint("T", DataTypeImpl::GetTensorType<MLFloat16>()),
+                          Conv);  
+#endif
 
 ONNX_OPERATOR_TYPED_KERNEL_EX(
     QLinearConv,

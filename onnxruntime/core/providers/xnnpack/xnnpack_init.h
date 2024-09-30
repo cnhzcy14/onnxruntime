@@ -1,4 +1,5 @@
 #include "core/framework/allocator.h"
+#include <stdexcept>
 
 struct xnn_allocator;
 
