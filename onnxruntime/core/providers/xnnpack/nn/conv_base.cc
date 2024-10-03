@@ -65,6 +65,7 @@ Status CreateXnnpackKernel(const ConvAttributes& conv_attrs,
   uint32_t group_count = gsl::narrow<uint32_t>(conv_attrs.group);
   size_t group_input_channels = gsl::narrow<size_t>(C / group_count);   // either C or 1
   size_t group_output_channels = gsl::narrow<size_t>(M / group_count);  // either M or M/C
+  throw std::invalid_argument("op_compute_type_XXX");
   if (conv_type == OpComputeType::op_compute_type_fp32) {
     auto* B_data = Bias ? Bias->Data<float>() : nullptr;
     auto create_func = is_transpose ? xnn_create_deconvolution2d_nhwc_f32
@@ -155,6 +156,7 @@ Status CreateXnnpackKernel(const ConvAttributes& conv_attrs,
         code_cache, weights_cache,
         &p);
   } else if (conv_type == OpComputeType::op_compute_type_fp16) {
+    throw std::invalid_argument("op_compute_type_fp16");
     const auto* B_data = Bias ? Bias->Data<MLFloat16>() : nullptr;
     const float output_min = -65504.0;
     const float output_max = 65504.0;
@@ -179,7 +181,7 @@ Status CreateXnnpackKernel(const ConvAttributes& conv_attrs,
     } else {
       throw std::invalid_argument("p != 0");
     }
-  } 
+  }
 
   if (status != xnn_status_success) {
     return ORT_MAKE_STATUS(ONNXRUNTIME, FAIL,
