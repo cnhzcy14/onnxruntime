@@ -22,41 +22,39 @@ Status Conv::PrePack(const Tensor& tensor, int input_idx, AllocatorPtr alloc,
                      /*out*/ PrePackedWeights* /*prepacked_weights*/) {
   is_packed = false;
   // only layout of weight input is adjusted via PrePack
-  if ((conv_type_ == OpComputeType::op_compute_type_fp32 && input_idx == 1) ||
-      (conv_type_ != OpComputeType::op_compute_type_fp32 && input_idx == 3)) {  // InputTensors::IN_W
-    // Transpose from {M, C/group, kH, kW} to {M, kH, kW, C/group}
-    auto orig_shape = tensor.Shape();
-    const auto rank = orig_shape.NumDimensions();
+  if(((conv_type_ == OpComputeType::op_compute_type_fp32 || conv_type_ == OpComputeType::op_compute_type_fp16 )&& input_idx == 1) ||
+         (conv_type_ != OpComputeType::op_compute_type_fp32 && input_idx == 3)) {  // InputTensors::IN_W
+      // Transpose from {M, C/group, kH, kW} to {M, kH, kW, C/group}
+      auto orig_shape = tensor.Shape();
+      const auto rank = orig_shape.NumDimensions();
 
-    if (rank == 4) {
-      InlinedVector<size_t> perm{0, 2, 3, 1};
-      TensorShapeVector new_dims{orig_shape[0],
-                                 orig_shape[2],
-                                 orig_shape[3],
-                                 orig_shape[1]};
+      if (rank == 4) {
+        InlinedVector<size_t> perm{0, 2, 3, 1};
+        TensorShapeVector new_dims{orig_shape[0],
+                                   orig_shape[2],
+                                   orig_shape[3],
+                                   orig_shape[1]};
 
-      packed_w_ = Tensor(tensor.DataType(), TensorShape(new_dims), std::move(alloc));
+        packed_w_ = Tensor(tensor.DataType(), TensorShape(new_dims), std::move(alloc));
 
-      SingleAxisTranspose(perm, tensor, packed_w_, /*from*/ 1, /*to*/ 3);
-    } else {
-      assert(rank == 3);  // ConvBase::IsOnnxNodeSupported validates this
+        SingleAxisTranspose(perm, tensor, packed_w_, /*from*/ 1, /*to*/ 3);
+      } else {
+        assert(rank == 3);  // ConvBase::IsOnnxNodeSupported validates this
 
-      InlinedVector<size_t> perm{0, 2, 1};
-      TensorShapeVector new_dims{orig_shape[0],
-                                 orig_shape[2],
-                                 orig_shape[1]};
+        InlinedVector<size_t> perm{0, 2, 1};
+        TensorShapeVector new_dims{orig_shape[0],
+                                   orig_shape[2],
+                                   orig_shape[1]};
 
-      packed_w_ = Tensor(tensor.DataType(), TensorShape(new_dims), std::move(alloc));
+        packed_w_ = Tensor(tensor.DataType(), TensorShape(new_dims), std::move(alloc));
 
-      SingleAxisTranspose(perm, tensor, packed_w_, /*from*/ 1, /*to*/ 2);
+        SingleAxisTranspose(perm, tensor, packed_w_, /*from*/ 1, /*to*/ 2);
+      }
+
+      is_packed = true;
+      // we can create the kernel now
+      ORT_RETURN_IF_ERROR(CreateKernel());
     }
-
-    is_packed = true;
-
-    // we can create the kernel now
-    ORT_RETURN_IF_ERROR(CreateKernel());
-  }
-
   return Status::OK();
 }
 
@@ -105,7 +103,7 @@ Status Conv::Compute(OpKernelContext* context) const {
   } else if (conv_type_ == OpComputeType::op_compute_type_fp16) {
     reshape_fn = xnn_reshape_convolution2d_nhwc_f16;
   }
-  
+
   if (!op0_.get()) {
     throw std::invalid_argument("op0 ------");
   }
@@ -117,7 +115,6 @@ Status Conv::Compute(OpKernelContext* context) const {
     return ORT_MAKE_STATUS(ONNXRUNTIME, FAIL, "xnn_reshape_convolution2d_nhwc_", OpTypeToString(conv_type_),
                            "returned ", status);
   }
-  throw std::invalid_argument("step2");
   workspace.reset(allocator->aligned_allocate(allocator->context, XNN_ALLOCATION_ALIGNMENT, workspace_size));
 
   if (conv_type_ == OpComputeType::op_compute_type_fp32) {
@@ -134,7 +131,7 @@ Status Conv::Compute(OpKernelContext* context) const {
                                                    Y->MutableData<int8_t>());
   } else if (conv_type_ == OpComputeType::op_compute_type_fp16) {
     status = xnn_setup_convolution2d_nhwc_f16(op0_.get(), workspace.get(), X.Data<MLFloat16>(),
-                                                   Y->MutableData<MLFloat16>());
+                                              Y->MutableData<MLFloat16>());
   }
 
   if (status != xnn_status_success) {
@@ -158,13 +155,13 @@ ONNX_OPERATOR_KERNEL_EX(Conv, kMSInternalNHWCDomain, 11, kXnnpackExecutionProvid
                         KernelDefBuilder().TypeConstraint("T", DataTypeImpl::GetTensorType<float>()),
                         Conv);
 #ifdef XNNPACK_FP16_SUPPORTED
-  ONNX_OPERATOR_VERSIONED_TYPED_KERNEL_EX(Conv, kMSInternalNHWCDomain, 1, 10, MLFloat16, kXnnpackExecutionProvider, 
-                                    KernelDefBuilder().TypeConstraint("T", DataTypeImpl::GetTensorType<MLFloat16>()),
-                                    Conv);
+ONNX_OPERATOR_VERSIONED_TYPED_KERNEL_EX(Conv, kMSInternalNHWCDomain, 1, 10, MLFloat16, kXnnpackExecutionProvider,
+                                        KernelDefBuilder().TypeConstraint("T", DataTypeImpl::GetTensorType<MLFloat16>()),
+                                        Conv);
 
-  ONNX_OPERATOR_TYPED_KERNEL_EX(Conv, kMSInternalNHWCDomain, 11, MLFloat16, kXnnpackExecutionProvider,
-                          KernelDefBuilder().TypeConstraint("T", DataTypeImpl::GetTensorType<MLFloat16>()),
-                          Conv);  
+ONNX_OPERATOR_TYPED_KERNEL_EX(Conv, kMSInternalNHWCDomain, 11, MLFloat16, kXnnpackExecutionProvider,
+                              KernelDefBuilder().TypeConstraint("T", DataTypeImpl::GetTensorType<MLFloat16>()),
+                              Conv);
 #endif
 
 ONNX_OPERATOR_TYPED_KERNEL_EX(

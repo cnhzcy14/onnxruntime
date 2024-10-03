@@ -65,7 +65,6 @@ Status CreateXnnpackKernel(const ConvAttributes& conv_attrs,
   uint32_t group_count = gsl::narrow<uint32_t>(conv_attrs.group);
   size_t group_input_channels = gsl::narrow<size_t>(C / group_count);   // either C or 1
   size_t group_output_channels = gsl::narrow<size_t>(M / group_count);  // either M or M/C
-  throw std::invalid_argument("op_compute_type_XXX");
   if (conv_type == OpComputeType::op_compute_type_fp32) {
     auto* B_data = Bias ? Bias->Data<float>() : nullptr;
     auto create_func = is_transpose ? xnn_create_deconvolution2d_nhwc_f32
@@ -156,7 +155,6 @@ Status CreateXnnpackKernel(const ConvAttributes& conv_attrs,
         code_cache, weights_cache,
         &p);
   } else if (conv_type == OpComputeType::op_compute_type_fp16) {
-    throw std::invalid_argument("op_compute_type_fp16");
     const auto* B_data = Bias ? Bias->Data<MLFloat16>() : nullptr;
     const float output_min = -65504.0;
     const float output_max = 65504.0;
@@ -170,17 +168,12 @@ Status CreateXnnpackKernel(const ConvAttributes& conv_attrs,
         group_count,
         group_input_channels,
         group_output_channels,
-        C, M,                                             // input channel stride, output channel stride
-        Weight.Data<MLFloat16>(), B_data,                 // kernel, bias
+        C, M,                              // input channel stride, output channel stride
+        Weight.Data<MLFloat16>(), B_data,  // kernel, bias
         output_min, output_max,
         flags,
         code_cache, weights_cache,
         &p);
-    if(!p) {
-      throw std::invalid_argument("!p");
-    } else {
-      throw std::invalid_argument("p != 0");
-    }
   }
 
   if (status != xnn_status_success) {
@@ -360,7 +353,7 @@ bool ConvBase::IsOnnxNodeSupported(const NodeUnit& node_unit, const GraphViewer&
 
     // we only support float and u8 currently
     const auto* x_type = x_arg.TypeAsProto();
-    if (x_type == nullptr || ! IsComputeTypeSupported(x_type->tensor_type().elem_type())) {
+    if (x_type == nullptr || !IsComputeTypeSupported(x_type->tensor_type().elem_type())) {
       break;
     }
     // require C, H, W to be known so we can construct the xnnpack kernel prior to Compute
